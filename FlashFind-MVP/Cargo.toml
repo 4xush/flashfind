@@ -1,0 +1,10 @@
+[package]
+name = "flashfind-mvp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.26"
+egui = "0.26"
+walkdir = "2.5"
+open = "4.2"

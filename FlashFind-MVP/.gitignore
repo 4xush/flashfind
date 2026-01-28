@@ -1,0 +1,38 @@
+# Rust
+# Compiled files
+/target/
+**/*.rs.bk
+
+# Backup files
+*.bak
+*.tmp
+*.swp
+*.swo
+
+# IDEs and editors
+/.idea/
+*.iml
+*.vscode/
+*.code-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# By-products of 'cargo doc'
+doc/
+
+# By-products of 'cargo test' with the --test-threads option
+*.profraw
+
+# Misc
+*.log
+
+# Ignore node_modules if using frontend assets
+node_modules/
+
+# Ignore coverage output
+coverage/
+
+# Ignore by default, but allow versioning of Cargo.lock for binaries
+# Cargo.lock
