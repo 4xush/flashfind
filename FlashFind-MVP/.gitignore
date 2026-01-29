@@ -20,8 +20,8 @@
 Thumbs.db
 
 # By-products of 'cargo doc'
-docs/*
-
+docs/
+favicon_io/
 PLAN.md
 
 # By-products of 'cargo test' with the --test-threads option

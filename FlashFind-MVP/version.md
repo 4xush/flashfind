@@ -36,3 +36,10 @@
 - **The Watcher:** The notify crate is running in the background. If you create a file while the app is open, the index updates.
 - **Persistence Logic:** On launch, the app checks %APPDATA%\FlashFind\index.bin. If it exists, it loads instantly.
 - **Serialization Efficiency:** We use `#[serde(skip)]` on the seen_paths HashSet to keep the file size smaller on disk (it's fast to rebuild the HashSet from the Vec on load).
+
+## Final Version 
+
+### New Features
+- **Context Menus:** Right-click a file to "Open Folder" or "Copy Path."
+- **Keyboard Navigation:** Press Enter to open the first result, Esc to clear.
+- **UI Feedback:** Visual cues for search results.
