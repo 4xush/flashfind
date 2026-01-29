@@ -20,7 +20,7 @@
 Thumbs.db
 
 # By-products of 'cargo doc'
-doc/
+docs/*
 
 # By-products of 'cargo test' with the --test-threads option
 *.profraw

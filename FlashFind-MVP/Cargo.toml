@@ -1,12 +1,15 @@
 [package]
-name = "flashfind-mvp"
+name = "flashfind"
 version = "0.1.0"
 edition = "2021"
-authors = ["Ayush Kumar ayush043@gmail.com"]
+authors = ["Ayush Kumar <ayush043@gmail.com>"]
 
 [dependencies]
-eframe = "0.26"
-egui = "0.26"
+eframe = "0.27"
+egui = "0.27"
 walkdir = "2.5"
-open = "4.2"
-rayon = "1.8"
+open = "5.1"
+rayon = "1.10"
+parking_lot = "0.12"
+ahash = "0.8"
+windows-sys = { version = "0.52", features = ["Win32_UI_Shell", "Win32_Foundation"] }
