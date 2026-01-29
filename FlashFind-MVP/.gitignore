@@ -22,6 +22,8 @@ Thumbs.db
 # By-products of 'cargo doc'
 docs/*
 
+PLAN.md
+
 # By-products of 'cargo test' with the --test-threads option
 *.profraw
 

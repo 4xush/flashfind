@@ -28,3 +28,11 @@
 
 ### Architectural Split
 - The logic is now encapsulated in `FlashFindEngine`, making it ready for automated testing.
+
+## Phase 3 Improvements (version = "0.2.0")
+
+### Key Highlights of Phase 3
+- **Bincode Serialization:** The FileIndex is now serializable. We use bincode because it’s much faster than JSON for large indices.
+- **The Watcher:** The notify crate is running in the background. If you create a file while the app is open, the index updates.
+- **Persistence Logic:** On launch, the app checks %APPDATA%\FlashFind\index.bin. If it exists, it loads instantly.
+- **Serialization Efficiency:** We use `#[serde(skip)]` on the seen_paths HashSet to keep the file size smaller on disk (it's fast to rebuild the HashSet from the Vec on load).
