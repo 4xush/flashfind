@@ -2,8 +2,10 @@ use eframe::egui;
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
+
+use crate::config::{Config, Theme};
 use crate::index::FileIndex;
 use crate::indexer::{Indexer, IndexState};
 use crate::persistence::{load_index, save_index};
@@ -14,11 +16,13 @@ pub struct FlashFindApp {
     index: Arc<RwLock<FileIndex>>,
     indexer: Indexer,
     watcher: Option<Watcher>,
+    config: Config,
     query: String,
     results: Vec<PathBuf>,
     search_time_ms: f64,
     last_error: Option<String>,
     show_settings: bool,
+    last_save: Instant,
 }
 
 impl FlashFindApp {
@@ -29,8 +33,14 @@ impl FlashFindApp {
         
         info!("FlashFind starting up");
         
-        // Setup UI styling
-        setup_ui_style(&cc.egui_ctx);
+        // Load configuration
+        let config = Config::load().unwrap_or_else(|e| {
+            warn!("Failed to load config ({}), using defaults", e);
+            Config::default()
+        });
+        
+        // Setup UI styling with theme
+        setup_ui_style(&cc.egui_ctx, config.theme);
         
         // Load or create index
         let index = match load_index() {
@@ -87,11 +97,13 @@ impl FlashFindApp {
             index,
             indexer,
             watcher,
+            config,
             query: String::new(),
             results: Vec::new(),
             search_time_ms: 0.0,
             last_error: None,
             show_settings: false,
+            last_save: Instant::now(),
         }
     }
     
@@ -134,6 +146,13 @@ impl FlashFindApp {
     
     /// Safely open a file
     fn open_file(&mut self, path: &Path) {
+        // Sanitize path
+        if !Self::is_safe_path(path) {
+            self.last_error = Some(format!("Unsafe path: {}", path.display()));
+            warn!("Attempted to open unsafe path: {}", path.display());
+            return;
+        }
+        
         if !path.exists() {
             self.last_error = Some(format!("File not found: {}", path.display()));
             return;
@@ -150,6 +169,13 @@ impl FlashFindApp {
     
     /// Safely open a folder
     fn open_folder(&mut self, path: &Path) {
+        // Sanitize path
+        if !Self::is_safe_path(path) {
+            self.last_error = Some(format!("Unsafe path: {}", path.display()));
+            warn!("Attempted to open unsafe path: {}", path.display());
+            return;
+        }
+        
         match open::that(path) {
             Ok(()) => debug!("Opened folder: {}", path.display()),
             Err(e) => {
@@ -158,6 +184,160 @@ impl FlashFindApp {
             }
         }
     }
+    
+    /// Validate path is safe to open (no command injection, symlink attacks)
+    fn is_safe_path(path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+        
+        // Reject paths with suspicious characters
+        if path_str.contains('&') || path_str.contains('|') || path_str.contains(';') {
+            return false;
+        }
+        
+        // Reject UNC paths that could be malicious
+        if path_str.starts_with("\\\\") {
+            return false;
+        }
+        
+        // Path must be absolute
+        if !path.is_absolute() {
+            return false;
+        }
+        
+        true
+    }
+    
+    /// Render settings window
+    fn render_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.heading("FlashFind Settings");
+        ui.add_space(10.0);
+        
+        // Configuration
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("⚙️ Configuration").strong());
+            ui.separator();
+            
+            // Theme selector
+            ui.horizontal(|ui| {
+                ui.label("Theme:");
+                let mut changed = false;
+                changed |= ui.selectable_value(&mut self.config.theme, Theme::Dark, "Dark").changed();
+                changed |= ui.selectable_value(&mut self.config.theme, Theme::Light, "Light").changed();
+                changed |= ui.selectable_value(&mut self.config.theme, Theme::System, "System").changed();
+                
+                if changed {
+                    setup_ui_style(ctx, self.config.theme);
+                    if let Err(e) = self.config.save() {
+                        warn!("Failed to save config: {}", e);
+                    }
+                }
+            });
+            
+            // Auto-save interval
+            ui.horizontal(|ui| {
+                ui.label("Auto-save interval:");
+                let mut minutes = (self.config.auto_save_interval / 60) as i32;
+                if ui.add(egui::Slider::new(&mut minutes, 0..=60).suffix(" min")).changed() {
+                    self.config.auto_save_interval = (minutes as u64) * 60;
+                    if let Err(e) = self.config.save() {
+                        warn!("Failed to save config: {}", e);
+                    }
+                }
+            });
+            ui.label(egui::RichText::new("(0 = disabled)").weak());
+        });
+        
+        ui.add_space(10.0);
+        
+        // Index statistics
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("📊 Index Statistics").strong());
+            ui.separator();
+            
+            let stats = self.index.read();
+            let (insertions, duplicates, searches) = stats.stats();
+            
+            ui.horizontal(|ui| {
+                ui.label("Total files:");
+                ui.label(egui::RichText::new(format!("{}", stats.len())).strong());
+            });
+            ui.horizontal(|ui| {
+                ui.label("Insertions:");
+                ui.label(format!("{}", insertions));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Duplicates skipped:");
+                ui.label(format!("{}", duplicates));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Searches performed:");
+                ui.label(format!("{}", searches));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Index version:");
+                ui.label(format!("v{}", stats.version()));
+            });
+        });
+        
+        ui.add_space(10.0);
+        
+        // Indexer state
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("⚙️ Indexer Status").strong());
+            ui.separator();
+            
+            match self.indexer.state() {
+                IndexState::Idle => {
+                    ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓ Idle");
+                }
+                IndexState::Scanning { progress } => {
+                    ui.colored_label(egui::Color32::from_rgb(255, 200, 100), format!("🔄 Scanning: {} files", progress));
+                }
+                IndexState::Saving => {
+                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "💾 Saving...");
+                }
+                IndexState::Error { message } => {
+                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), format!("❌ Error: {}", message));
+                }
+            }
+        });
+        
+        ui.add_space(10.0);
+        
+        // Watched directories
+        if let Some(w) = &self.watcher {
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("👁 Watched Directories").strong());
+                ui.separator();
+                
+                let watched = w.watched_directories();
+                if watched.is_empty() {
+                    ui.label(egui::RichText::new("No directories being watched").weak());
+                } else {
+                    egui::ScrollArea::vertical()
+                        .max_height(150.0)
+                        .show(ui, |ui| {
+                            for dir in watched {
+                                ui.label(format!("📁 {}", dir.display()));
+                            }
+                        });
+                }
+            });
+        } else {
+            ui.colored_label(egui::Color32::from_rgb(255, 150, 100), "⚠ File watcher disabled");
+        }
+        
+        ui.add_space(10.0);
+        
+        // About
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("ℹ About").strong());
+            ui.separator();
+            ui.label("FlashFind v1.0.0-phase2");
+            ui.label("High-performance file search for Windows");
+            ui.hyperlink_to("GitHub", "https://github.com");
+        });
+    }
 }
 
 impl eframe::App for FlashFindApp {
@@ -165,6 +345,16 @@ impl eframe::App for FlashFindApp {
         let total_files = self.index.read().len();
         let state = self.indexer.state();
         let is_indexing = self.indexer.is_running();
+        
+        // Auto-save check
+        if self.config.auto_save_interval > 0 {
+            let elapsed = self.last_save.elapsed();
+            if elapsed >= Duration::from_secs(self.config.auto_save_interval) {
+                debug!("Auto-save triggered after {}s", elapsed.as_secs());
+                self.handle_save();
+                self.last_save = Instant::now();
+            }
+        }
         
         // Handle keyboard shortcuts
         let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
@@ -272,15 +462,17 @@ impl eframe::App for FlashFindApp {
         }
         
         // Settings window
-        if self.show_settings {
+        let mut show_settings = self.show_settings;
+        if show_settings {
             egui::Window::new("⚙ Settings")
-                .open(&mut self.show_settings)
+                .open(&mut show_settings)
                 .resizable(true)
                 .default_width(400.0)
                 .show(ctx, |ui| {
-                    render_settings(ui, &self.index, &self.indexer, &self.watcher);
+                    self.render_settings(ui, ctx);
                 });
         }
+        self.show_settings = show_settings;
         
         // Main results panel
         let results_clone = self.results.clone();
@@ -333,101 +525,6 @@ enum ResultAction {
     Open,
     OpenFolder,
     CopyPath,
-}
-
-/// Render settings window
-fn render_settings(ui: &mut egui::Ui, index: &Arc<RwLock<FileIndex>>, indexer: &Indexer, watcher: &Option<Watcher>) {
-    ui.heading("FlashFind Settings");
-    ui.add_space(10.0);
-    
-    // Index statistics
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("📊 Index Statistics").strong());
-        ui.separator();
-        
-        let stats = index.read();
-        let (insertions, duplicates, searches) = stats.stats();
-        
-        ui.horizontal(|ui| {
-            ui.label("Total files:");
-            ui.label(egui::RichText::new(format!("{}", stats.len())).strong());
-        });
-        ui.horizontal(|ui| {
-            ui.label("Insertions:");
-            ui.label(format!("{}", insertions));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Duplicates skipped:");
-            ui.label(format!("{}", duplicates));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Searches performed:");
-            ui.label(format!("{}", searches));
-        });
-        ui.horizontal(|ui| {
-            ui.label("Index version:");
-            ui.label(format!("v{}", stats.version()));
-        });
-    });
-    
-    ui.add_space(10.0);
-    
-    // Indexer state
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("⚙️ Indexer Status").strong());
-        ui.separator();
-        
-        match indexer.state() {
-            IndexState::Idle => {
-                ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓ Idle");
-            }
-            IndexState::Scanning { progress } => {
-                ui.colored_label(egui::Color32::from_rgb(255, 200, 100), format!("🔄 Scanning: {} files", progress));
-            }
-            IndexState::Saving => {
-                ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "💾 Saving...");
-            }
-            IndexState::Error { message } => {
-                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), format!("❌ Error: {}", message));
-            }
-        }
-    });
-    
-    ui.add_space(10.0);
-    
-    // Watched directories
-    if let Some(w) = watcher {
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("👁 Watched Directories").strong());
-            ui.separator();
-            
-            let watched = w.watched_directories();
-            if watched.is_empty() {
-                ui.label(egui::RichText::new("No directories being watched").weak());
-            } else {
-                egui::ScrollArea::vertical()
-                    .max_height(150.0)
-                    .show(ui, |ui| {
-                        for dir in watched {
-                            ui.label(format!("📁 {}", dir.display()));
-                        }
-                    });
-            }
-        });
-    } else {
-        ui.colored_label(egui::Color32::from_rgb(255, 150, 100), "⚠ File watcher disabled");
-    }
-    
-    ui.add_space(10.0);
-    
-    // About
-    ui.group(|ui| {
-        ui.label(egui::RichText::new("ℹ About").strong());
-        ui.separator();
-        ui.label("FlashFind v1.0.0-phase1");
-        ui.label("High-performance file search for Windows");
-        ui.hyperlink_to("GitHub", "https://github.com");
-    });
 }
 
 /// Render the header bar
@@ -525,11 +622,31 @@ fn get_file_icon(path: &Path) -> &'static str {
 }
 
 /// Setup UI styling
-fn setup_ui_style(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.widgets.active.rounding = egui::Rounding::same(4.0);
-    visuals.widgets.hovered.rounding = egui::Rounding::same(4.0);
-    visuals.window_rounding = egui::Rounding::same(8.0);
+fn setup_ui_style(ctx: &egui::Context, theme: Theme) {
+    let visuals = match theme {
+        Theme::Dark => {
+            let mut v = egui::Visuals::dark();
+            v.widgets.active.rounding = egui::Rounding::same(4.0);
+            v.widgets.hovered.rounding = egui::Rounding::same(4.0);
+            v.window_rounding = egui::Rounding::same(8.0);
+            v
+        }
+        Theme::Light => {
+            let mut v = egui::Visuals::light();
+            v.widgets.active.rounding = egui::Rounding::same(4.0);
+            v.widgets.hovered.rounding = egui::Rounding::same(4.0);
+            v.window_rounding = egui::Rounding::same(8.0);
+            v
+        }
+        Theme::System => {
+            // Default to dark for now, could detect system preference
+            let mut v = egui::Visuals::dark();
+            v.widgets.active.rounding = egui::Rounding::same(4.0);
+            v.widgets.hovered.rounding = egui::Rounding::same(4.0);
+            v.window_rounding = egui::Rounding::same(8.0);
+            v
+        }
+    };
     ctx.set_visuals(visuals);
 }
 

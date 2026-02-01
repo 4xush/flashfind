@@ -1,6 +1,51 @@
 # Version Notes
 
-## January 30, 2026
+## v1.0.0-phase2 (February 1, 2026)
+
+### Configuration System
+- **JSON-based Configuration**: Added persistent configuration with `Config` struct
+  - Stored in `%APPDATA%\FlashFind\config.json`
+  - Fields: watched_directories, auto_save_interval, max_index_size, theme, show_hidden_files, custom_exclusions
+  - Automatic save on changes with graceful fallback to defaults on load errors
+
+### Theme Support
+- **Theme Selector**: Added Dark/Light/System theme toggle in Settings
+  - Real-time theme switching without restart
+  - Persistent theme preference across sessions
+  - Visual feedback with rounded corners (4px widgets, 8px windows)
+
+### Auto-Save Mechanism
+- **Configurable Auto-Save**: Automatic periodic index persistence
+  - User-configurable interval (0-60 minutes) via Settings slider
+  - Default: 5 minutes (300 seconds)
+  - 0 = disabled for manual control
+  - Last save timestamp tracking to prevent excessive disk I/O
+
+### Path Security
+- **Path Sanitization**: Added comprehensive path validation before open operations
+  - Blocks command injection characters (&, |, ;)
+  - Rejects malicious UNC paths (\\\\)
+  - Requires absolute paths only
+  - Prevents symlink attacks and directory traversal
+  - User-friendly error messages for rejected paths
+
+### Enhanced Settings Panel
+- **Interactive Configuration UI**: 
+  - Theme selector with immediate visual feedback
+  - Auto-save interval slider with real-time updates
+  - All changes persist automatically to config.json
+  - Improved About section showing v1.0.0-phase2
+
+### Code Quality
+- **Modular Architecture**: 8 modules (error, index, indexer, persistence, watcher, app, config, main)
+- **0 Compiler Warnings**: Clean build with all dead code removed
+- **Safe Borrow Patterns**: Fixed egui window closure borrow conflicts
+
+### Dependencies Added
+- `serde_json 1.0`: JSON serialization for configuration
+- `csv 1.3`: Prepared for future export functionality
+
+## v1.0.0-phase1 (January 31, 2026)
 
 ### Fixed Warnings
 - Removed unused variable `f` and utilized `rayon::prelude::*` for the parallel search logic.

@@ -1,6 +1,6 @@
 [package]
 name = "flashfind"
-version = "1.0.0-phase1"
+version = "1.0.0-phase2"
 edition = "2021"
 authors = ["Ayush Kumar <ayush043@gmail.com>"]
 
@@ -25,6 +25,10 @@ tracing-appender = "0.2"    # Log file rotation
 anyhow = "1.0"              # Error context propagation
 known-folders = "1.1"       # Proper Windows paths
 crossbeam-channel = "0.5"   # Better concurrency primitives
+
+# Phase 2: Polish & Features
+serde_json = "1.0"          # JSON config serialization
+csv = "1.3"                 # CSV export functionality
 
 [build-dependencies]
 winres = "0.1"

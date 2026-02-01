@@ -9,6 +9,7 @@
 //! - Production-grade error handling and logging
 
 mod app;
+mod config;
 mod error;
 mod index;
 mod indexer;
