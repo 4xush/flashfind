@@ -1,6 +1,22 @@
 # Version Notes
 
-## v1.0.0-phase2 (February 1, 2026)
+## v1.0.0-phase2 (February 2, 2026)
+
+### CSV Export
+- **Export Search Results**: One-click export to CSV with file metadata
+  - Button appears when search results exist
+  - Includes: Path, Filename, Extension, File Size
+  - Auto-opens containing folder after export
+  - Timestamped filenames: `flashfind_export_<timestamp>.csv`
+  - Properly quoted CSV format for paths with commas
+  
+### Enhanced About Section
+- **Detailed System Information**:
+  - Version number with build info
+  - System architecture (x86_64, etc.)
+  - MIT License notice
+  - Interactive documentation link
+  - Professional layout with better spacing
 
 ### Configuration System
 - **JSON-based Configuration**: Added persistent configuration with `Config` struct

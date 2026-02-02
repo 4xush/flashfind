@@ -11,6 +11,55 @@ use crate::indexer::{Indexer, IndexState};
 use crate::persistence::{load_index, save_index};
 use crate::watcher::{get_default_directories, Watcher};
 
+/// File type filter options
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum FileTypeFilter {
+    All,
+    Documents,
+    Images,
+    Videos,
+    Audio,
+    Code,
+    Archives,
+}
+
+impl FileTypeFilter {
+    fn matches(&self, path: &Path) -> bool {
+        if matches!(self, FileTypeFilter::All) {
+            return true;
+        }
+        
+        let ext = path.extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_lowercase());
+        
+        match ext.as_deref() {
+            Some(e) => match self {
+                FileTypeFilter::Documents => matches!(e, "pdf" | "doc" | "docx" | "txt" | "rtf" | "odt" | "md"),
+                FileTypeFilter::Images => matches!(e, "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" | "webp" | "ico"),
+                FileTypeFilter::Videos => matches!(e, "mp4" | "avi" | "mkv" | "mov" | "wmv" | "flv" | "webm"),
+                FileTypeFilter::Audio => matches!(e, "mp3" | "wav" | "flac" | "aac" | "ogg" | "m4a" | "wma"),
+                FileTypeFilter::Code => matches!(e, "rs" | "py" | "js" | "ts" | "java" | "c" | "cpp" | "h" | "cs" | "go" | "rb" | "php" | "html" | "css" | "json" | "xml" | "yaml" | "toml"),
+                FileTypeFilter::Archives => matches!(e, "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz"),
+                FileTypeFilter::All => true,
+            },
+            None => false,
+        }
+    }
+    
+    fn label(&self) -> &'static str {
+        match self {
+            FileTypeFilter::All => "All Files",
+            FileTypeFilter::Documents => "Documents",
+            FileTypeFilter::Images => "Images",
+            FileTypeFilter::Videos => "Videos",
+            FileTypeFilter::Audio => "Audio",
+            FileTypeFilter::Code => "Code",
+            FileTypeFilter::Archives => "Archives",
+        }
+    }
+}
+
 /// Main application state
 pub struct FlashFindApp {
     index: Arc<RwLock<FileIndex>>,
@@ -18,6 +67,7 @@ pub struct FlashFindApp {
     watcher: Option<Watcher>,
     config: Config,
     query: String,
+    file_type_filter: FileTypeFilter,
     results: Vec<PathBuf>,
     search_time_ms: f64,
     last_error: Option<String>,
@@ -99,6 +149,7 @@ impl FlashFindApp {
             watcher,
             config,
             query: String::new(),
+            file_type_filter: FileTypeFilter::All,
             results: Vec::new(),
             search_time_ms: 0.0,
             last_error: None,
@@ -110,9 +161,19 @@ impl FlashFindApp {
     /// Perform a search
     fn do_search(&mut self) {
         let start = Instant::now();
-        self.results = self.index.read().search(&self.query);
+        let all_results = self.index.read().search(&self.query);
+        
+        // Apply file type filter
+        self.results = if matches!(self.file_type_filter, FileTypeFilter::All) {
+            all_results
+        } else {
+            all_results.into_iter()
+                .filter(|path| self.file_type_filter.matches(path))
+                .collect()
+        };
+        
         self.search_time_ms = start.elapsed().as_secs_f64() * 1000.0;
-        debug!("Search completed in {:.2}ms", self.search_time_ms);
+        debug!("Search completed in {:.2}ms, {} results after filter", self.search_time_ms, self.results.len());
     }
     
     /// Handle manual save button
@@ -181,6 +242,66 @@ impl FlashFindApp {
             Err(e) => {
                 error!("Failed to open folder: {}", e);
                 self.last_error = Some(format!("Cannot open folder: {}", e));
+            }
+        }
+    }
+    
+    /// Export search results to CSV file
+    fn export_to_csv(&mut self) {
+        use std::fs::File;
+        use std::io::Write;
+        
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        let filename = format!("flashfind_export_{}.csv", timestamp);
+        let export_path = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(&filename);
+        
+        match File::create(&export_path) {
+            Ok(mut file) => {
+                // Write CSV header
+                if let Err(e) = writeln!(file, "Path,Filename,Extension,Size") {
+                    self.last_error = Some(format!("Failed to write CSV: {}", e));
+                    return;
+                }
+                
+                // Write each result
+                for path in &self.results {
+                    let filename = path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("N/A");
+                    
+                    let extension = path.extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("N/A");
+                    
+                    let size = std::fs::metadata(path)
+                        .ok()
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    
+                    let path_str = path.to_string_lossy();
+                    
+                    if let Err(e) = writeln!(file, "\"{}\",\"{}\",{},{}", path_str, filename, extension, size) {
+                        warn!("Failed to write row: {}", e);
+                    }
+                }
+                
+                info!("Exported {} results to {}", self.results.len(), export_path.display());
+                self.last_error = Some(format!("✓ Exported to {}", filename));
+                
+                // Open the folder containing the CSV
+                if let Some(parent) = export_path.parent() {
+                    let _ = open::that(parent);
+                }
+            }
+            Err(e) => {
+                error!("Failed to create CSV file: {}", e);
+                self.last_error = Some(format!("Failed to export: {}", e));
             }
         }
     }
@@ -333,9 +454,30 @@ impl FlashFindApp {
         ui.group(|ui| {
             ui.label(egui::RichText::new("ℹ About").strong());
             ui.separator();
-            ui.label("FlashFind v1.0.0-phase2");
+            
+            ui.horizontal(|ui| {
+                ui.label("Version:");
+                ui.label(egui::RichText::new("v1.0.0-phase2").strong());
+            });
+            
+            ui.horizontal(|ui| {
+                ui.label("Built:");
+                ui.label(env!("CARGO_PKG_VERSION"));
+            });
+            
+            ui.horizontal(|ui| {
+                ui.label("Architecture:");
+                ui.label(std::env::consts::ARCH);
+            });
+            
+            ui.add_space(5.0);
             ui.label("High-performance file search for Windows");
-            ui.hyperlink_to("GitHub", "https://github.com");
+            ui.label(egui::RichText::new("MIT License © 2026").weak().small());
+            
+            ui.add_space(5.0);
+            if ui.link("📖 Documentation").clicked() {
+                let _ = open::that("https://github.com");
+            }
         });
     }
 }
@@ -417,10 +559,37 @@ impl eframe::App for FlashFindApp {
                         if ui.button("⚙ Settings").clicked() {
                             self.show_settings = !self.show_settings;
                         }
+                        
+                        if !self.results.is_empty() && ui.button("📊 Export CSV").clicked() {
+                            self.export_to_csv();
+                        }
                     });
                 });
                 
                 ui.add_space(8.0);
+                
+                // File type filter dropdown
+                ui.horizontal(|ui| {
+                    ui.label("Filter:");
+                    let mut filter_changed = false;
+                    egui::ComboBox::from_id_source("file_type_filter")
+                        .selected_text(self.file_type_filter.label())
+                        .show_ui(ui, |ui| {
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::All, "All Files").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Documents, "Documents").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Images, "Images").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Videos, "Videos").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Audio, "Audio").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Code, "Code").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Archives, "Archives").clicked();
+                        });
+                    
+                    if filter_changed {
+                        self.do_search();
+                    }
+                });
+                
+                ui.add_space(4.0);
                 
                 // Search box
                 let search = ui.add(
