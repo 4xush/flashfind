@@ -72,6 +72,7 @@ pub struct FlashFindApp {
     search_time_ms: f64,
     last_error: Option<String>,
     show_settings: bool,
+    show_welcome: bool,
     settings_tab: SettingsTab,
     last_save: Instant,
 }
@@ -99,6 +100,9 @@ impl FlashFindApp {
             warn!("Failed to load config ({}), using defaults", e);
             Config::default()
         });
+        
+        // Check if this is first launch for welcome screen
+        let show_welcome = config.first_launch;
         
         // Setup UI styling with theme
         setup_ui_style(&cc.egui_ctx, config.theme);
@@ -165,6 +169,7 @@ impl FlashFindApp {
             search_time_ms: 0.0,
             last_error: None,
             show_settings: false,
+            show_welcome,
             settings_tab: SettingsTab::Configuration,
             last_save: Instant::now(),
         }
@@ -392,6 +397,29 @@ impl FlashFindApp {
                             }
                         });
                         ui.label(egui::RichText::new("(0 = disabled)").weak().small());
+                        
+                        ui.add_space(15.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        // Quick Tips section
+                        ui.label(egui::RichText::new("💡 Quick Tips").size(14.0).strong());
+                        ui.add_space(8.0);
+                        
+                        egui::Frame::none()
+                            .fill(ui.visuals().code_bg_color)
+                            .inner_margin(egui::Margin::same(12.0))
+                            .rounding(6.0)
+                            .show(ui, |ui| {
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 6.0;
+                                    ui.label(egui::RichText::new("• Start typing to search instantly").size(12.0));
+                                    ui.label(egui::RichText::new("• Press Enter to open the first result").size(12.0));
+                                    ui.label(egui::RichText::new("• Press Esc to clear your search").size(12.0));
+                                    ui.label(egui::RichText::new("• Use file type filters for specific searches").size(12.0));
+                                    ui.label(egui::RichText::new("• Right-click results for more options").size(12.0));
+                                });
+                            });
                     }
                     
                     SettingsTab::Drives => {
@@ -582,7 +610,7 @@ impl FlashFindApp {
                         
                         ui.add_space(10.0);
                         if ui.link("📖 Documentation").clicked() {
-                            let _ = open::that("https://github.com");
+                            let _ = open::that("https://github.com/4xush/flashfind");
                         }
                     }
                 }
@@ -632,64 +660,72 @@ impl eframe::App for FlashFindApp {
         let mut should_reindex = false;
         
         egui::TopBottomPanel::top("header")
-            .frame(egui::Frame::none().inner_margin(8.0))
+            .frame(egui::Frame::none()
+                .fill(ctx.style().visuals.panel_fill)
+                .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+                .stroke(egui::Stroke::new(1.0, ctx.style().visuals.widgets.noninteractive.bg_stroke.color)))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("⚡").size(20.0));
-                    ui.heading("FlashFind");
+                    ui.label(egui::RichText::new("⚡").size(24.0).color(egui::Color32::from_rgb(100, 200, 255)));
+                    ui.label(egui::RichText::new("FlashFind").size(18.0).strong());
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        
                         // State indicator
                         match &state {
                             IndexState::Scanning { progress } => {
-                                ui.add(egui::Spinner::new().size(12.0));
-                                ui.label(egui::RichText::new(format!("Indexing... {}", progress)).weak().small());
+                                ui.add(egui::Spinner::new().size(14.0));
+                                ui.label(egui::RichText::new(format!("Indexing {} files", progress)).weak().size(13.0));
                             }
                             IndexState::Saving => {
-                                ui.label(egui::RichText::new("Saving...").weak().small());
+                                ui.label(egui::RichText::new("💾 Saving...").weak().size(13.0));
                             }
                             IndexState::Error { message } => {
-                                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), message);
+                                ui.colored_label(egui::Color32::from_rgb(255, 120, 120), format!("⚠ {}", message));
                             }
                             IndexState::Idle => {
-                                ui.label(egui::RichText::new(format!("{} files", total_files)).weak().small());
+                                ui.label(egui::RichText::new(format!("📁 {} indexed", total_files)).weak().size(13.0));
                             }
                         }
                         
-                        if ui.button("💾 Save").clicked() {
+                        ui.add_space(4.0);
+                        
+                        if !self.results.is_empty() && ui.button(egui::RichText::new("📊 Export").size(13.0)).on_hover_text("Export results to CSV").clicked() {
+                            self.export_to_csv();
+                        }
+                        
+                        if ui.button(egui::RichText::new("💾 Save").size(13.0)).on_hover_text("Save index now").clicked() {
                             should_save = true;
                         }
                         
-                        if ui.button("🔄 Re-index").clicked() {
+                        if ui.button(egui::RichText::new("🔄 Reindex").size(13.0)).on_hover_text("Rebuild file index").clicked() {
                             should_reindex = true;
                         }
                         
-                        if ui.button("⚙ Settings").clicked() {
+                        if ui.button(egui::RichText::new("⚙ Settings").size(13.0)).clicked() {
                             self.show_settings = !self.show_settings;
-                        }
-                        
-                        if !self.results.is_empty() && ui.button("📊 Export CSV").clicked() {
-                            self.export_to_csv();
                         }
                     });
                 });
                 
-                ui.add_space(8.0);
+                ui.add_space(10.0);
                 
                 // File type filter dropdown
                 ui.horizontal(|ui| {
-                    ui.label("Filter:");
+                    ui.label(egui::RichText::new("Filter:").size(13.0));
                     let mut filter_changed = false;
                     egui::ComboBox::from_id_source("file_type_filter")
-                        .selected_text(self.file_type_filter.label())
+                        .selected_text(egui::RichText::new(self.file_type_filter.label()).size(13.0))
+                        .width(120.0)
                         .show_ui(ui, |ui| {
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::All, "All Files").clicked();
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Documents, "Documents").clicked();
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Images, "Images").clicked();
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Videos, "Videos").clicked();
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Audio, "Audio").clicked();
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Code, "Code").clicked();
-                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Archives, "Archives").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::All, "📋 All Files").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Documents, "📄 Documents").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Images, "🖼️ Images").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Videos, "🎥 Videos").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Audio, "🎵 Audio").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Code, "💻 Code").clicked();
+                            filter_changed |= ui.selectable_value(&mut self.file_type_filter, FileTypeFilter::Archives, "📦 Archives").clicked();
                         });
                     
                     if filter_changed {
@@ -697,13 +733,15 @@ impl eframe::App for FlashFindApp {
                     }
                 });
                 
-                ui.add_space(4.0);
+                ui.add_space(8.0);
                 
                 // Search box
                 let search = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
-                        .hint_text("Type to search... (Enter to open, Esc to clear)")
+                        .hint_text("🔍 Search files... (Enter to open, Esc to clear)")
                         .desired_width(f32::INFINITY)
+                        .font(egui::TextStyle::Body)
+                        .margin(egui::vec2(8.0, 6.0))
                         .lock_focus(true),
                 );
                 
@@ -711,23 +749,26 @@ impl eframe::App for FlashFindApp {
                     self.do_search();
                 }
                 
-                // Show search stats
-                if !self.results.is_empty() {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} results in {:.2}ms",
-                            self.results.len(),
-                            self.search_time_ms
-                        ))
-                        .weak()
-                        .small(),
-                    );
-                }
+                ui.add_space(4.0);
                 
-                // Show errors
-                if let Some(err) = &self.last_error {
-                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), err);
-                }
+                // Show search stats and errors
+                ui.horizontal(|ui| {
+                    if !self.results.is_empty() {
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "✓ {} results in {:.1}ms",
+                                self.results.len(),
+                                self.search_time_ms
+                            ))
+                            .color(egui::Color32::from_rgb(120, 200, 120))
+                            .size(12.0),
+                        );
+                    }
+                    
+                    if let Some(err) = &self.last_error {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 120), format!("⚠ {}", err));
+                    }
+                });
             });
         
         // Handle button actions after UI
@@ -752,6 +793,29 @@ impl eframe::App for FlashFindApp {
                 });
         }
         self.show_settings = show_settings;
+        
+        // Welcome window for first-time users
+        let mut show_welcome = self.show_welcome;
+        if show_welcome {
+            egui::Window::new("👋 Welcome to FlashFind")
+                .open(&mut show_welcome)
+                .resizable(false)
+                .collapsible(false)
+                .fixed_size([520.0, 580.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    render_welcome(ui);
+                });
+            
+            // If user closed welcome, mark first launch as false
+            if !show_welcome && self.show_welcome {
+                self.config.first_launch = false;
+                if let Err(e) = self.config.save() {
+                    warn!("Failed to save config after welcome: {}", e);
+                }
+            }
+        }
+        self.show_welcome = show_welcome;
         
         // Main results panel
         let results_clone = self.results.clone();
@@ -811,22 +875,27 @@ enum ResultAction {
 fn render_empty_state(ui: &mut egui::Ui, total_files: usize) {
     ui.centered_and_justified(|ui| {
         ui.vertical_centered(|ui| {
-            ui.label(egui::RichText::new("⚡").size(64.0));
+            ui.add_space(80.0);
+            ui.label(egui::RichText::new("⚡").size(96.0).color(egui::Color32::from_rgb(100, 200, 255)));
             ui.add_space(16.0);
-            ui.heading("FlashFind");
-            ui.add_space(8.0);
-            ui.label(format!("{} files indexed", total_files));
-            ui.add_space(16.0);
-            ui.label(egui::RichText::new("Start typing to search...").weak());
+            ui.label(egui::RichText::new("FlashFind").size(28.0).strong());
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new(format!("📁 {} files indexed and ready", total_files))
+                .size(15.0)
+                .color(egui::Color32::from_rgb(150, 150, 150)));
+            ui.add_space(20.0);
+            ui.label(egui::RichText::new("Start typing to search...").size(14.0).weak());
         });
     });
 }
 
 /// Render search results with virtual scrolling
 fn render_results(ui: &mut egui::Ui, results: &[PathBuf], action_queue: &mut Vec<(PathBuf, ResultAction)>) {
-    let row_height = 30.0;
+    let row_height = 52.0;
     
     egui::ScrollArea::vertical().show_rows(ui, row_height, results.len(), |ui, range| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        
         for i in range {
             let path = &results[i];
             let filename = path
@@ -834,30 +903,54 @@ fn render_results(ui: &mut egui::Ui, results: &[PathBuf], action_queue: &mut Vec
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
+            let path_str = path.display().to_string();
             
             // Use unique ID for each row based on full path and index
             ui.push_id(format!("result_{}", i), |ui| {
-                let response = ui.horizontal(|ui| {
-                    ui.set_height(row_height);
-                    ui.label(get_file_icon(path));
-                    
-                    let link = ui.link(&filename);
-                    if link.clicked() {
-                        action_queue.push((path.clone(), ResultAction::Open));
-                    }
-                    
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(
-                            egui::RichText::new(
-                                path.parent()
-                                    .unwrap_or(Path::new(""))
-                                    .to_string_lossy()
-                            )
-                            .weak()
-                            .small(),
-                        );
-                    });
-                }).response;
+                // Highlight alternate rows
+                let bg_color = if i % 2 == 0 {
+                    ui.visuals().faint_bg_color
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
+                
+                let response = egui::Frame::none()
+                    .fill(bg_color)
+                    .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.set_height(row_height - 16.0);
+                            
+                            // Icon
+                            ui.label(egui::RichText::new(get_file_icon(path)).size(18.0));
+                            ui.add_space(4.0);
+                            
+                            // Filename and path
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 2.0;
+                                let link = ui.link(egui::RichText::new(&filename).size(14.0));
+                                if link.clicked() {
+                                    action_queue.push((path.clone(), ResultAction::Open));
+                                }
+                                ui.label(egui::RichText::new(&path_str).weak().size(11.5));
+                            });
+                            
+                            // Spacer and menu
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.menu_button(egui::RichText::new("⋮").size(16.0), |ui| {
+                                    if ui.button("📂 Open folder").clicked() {
+                                        action_queue.push((path.clone(), ResultAction::OpenFolder));
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("📋 Copy path").clicked() {
+                                        ui.output_mut(|o| o.copied_text = path_str.clone());
+                                        action_queue.push((path.clone(), ResultAction::CopyPath));
+                                        ui.close_menu();
+                                    }
+                                });
+                            });
+                        });
+                    }).response;
                 
                 // Context menu with unique ID
                 response.context_menu(|ui| {
@@ -866,7 +959,7 @@ fn render_results(ui: &mut egui::Ui, results: &[PathBuf], action_queue: &mut Vec
                         ui.close_menu();
                     }
                     if ui.button("📋 Copy Path").clicked() {
-                        ui.output_mut(|o| o.copied_text = path.to_string_lossy().to_string());
+                        ui.output_mut(|o| o.copied_text = path_str.clone());
                         action_queue.push((path.clone(), ResultAction::CopyPath));
                         ui.close_menu();
                     }
@@ -902,31 +995,148 @@ fn get_file_icon(path: &Path) -> &'static str {
 
 /// Setup UI styling
 fn setup_ui_style(ctx: &egui::Context, theme: Theme) {
-    let visuals = match theme {
-        Theme::Dark => {
-            let mut v = egui::Visuals::dark();
-            v.widgets.active.rounding = egui::Rounding::same(4.0);
-            v.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            v.window_rounding = egui::Rounding::same(8.0);
-            v
-        }
-        Theme::Light => {
-            let mut v = egui::Visuals::light();
-            v.widgets.active.rounding = egui::Rounding::same(4.0);
-            v.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            v.window_rounding = egui::Rounding::same(8.0);
-            v
-        }
-        Theme::System => {
-            // Default to dark for now, could detect system preference
-            let mut v = egui::Visuals::dark();
-            v.widgets.active.rounding = egui::Rounding::same(4.0);
-            v.widgets.hovered.rounding = egui::Rounding::same(4.0);
-            v.window_rounding = egui::Rounding::same(8.0);
-            v
-        }
+    let mut visuals = match theme {
+        Theme::Dark => egui::Visuals::dark(),
+        Theme::Light => egui::Visuals::light(),
+        Theme::System => egui::Visuals::dark(),
     };
+    
+    // Modern rounded corners
+    visuals.widgets.noninteractive.rounding = egui::Rounding::same(6.0);
+    visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
+    visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
+    visuals.widgets.active.rounding = egui::Rounding::same(6.0);
+    visuals.window_rounding = egui::Rounding::same(12.0);
+    visuals.menu_rounding = egui::Rounding::same(8.0);
+    
+    // Improved stroke widths
+    visuals.window_stroke.width = 1.0;
+    visuals.widgets.noninteractive.bg_stroke.width = 1.0;
+    
+    // Better shadows
+    visuals.window_shadow.blur = 16.0;
+    visuals.window_shadow.spread = 4.0;
+    
     ctx.set_visuals(visuals);
+    
+    // Enhanced text styles
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    style.spacing.window_margin = egui::Margin::same(12.0);
+    ctx.set_style(style);
+}
+
+/// Render welcome/onboarding screen for first-time users
+fn render_welcome(ui: &mut egui::Ui) {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(20.0);
+            
+            // Brand
+            ui.label(egui::RichText::new("⚡").size(72.0).color(egui::Color32::from_rgb(100, 200, 255)));
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new("FlashFind").size(32.0).strong());
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Lightning-Fast File Search for Windows")
+                .size(14.0)
+                .color(egui::Color32::from_rgb(150, 150, 150)));
+            
+            ui.add_space(24.0);
+            ui.separator();
+            ui.add_space(20.0);
+        });
+        
+        ui.vertical(|ui| {
+            // What is FlashFind
+            ui.label(egui::RichText::new("🚀 What is FlashFind?").size(16.0).strong());
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new(
+                "FlashFind is a high-performance desktop search utility that helps you instantly \
+                locate any file on your computer. Unlike traditional search tools that scan on-demand, \
+                FlashFind builds a smart index in the background, making searches blazingly fast."
+            ).size(13.0));
+            
+            ui.add_space(20.0);
+            
+            // Key Benefits
+            ui.label(egui::RichText::new("✨ Why FlashFind?").size(16.0).strong());
+            ui.add_space(8.0);
+            
+            egui::Frame::none()
+                .fill(ui.visuals().code_bg_color)
+                .inner_margin(egui::Margin::same(16.0))
+                .rounding(8.0)
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 10.0;
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("⚡").size(16.0));
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("Lightning Fast").strong().size(13.0));
+                                ui.label(egui::RichText::new("Search millions of files in milliseconds").size(12.0).weak());
+                            });
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("🔒").size(16.0));
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("100% Private").strong().size(13.0));
+                                ui.label(egui::RichText::new("All data stays on your computer, nothing sent online").size(12.0).weak());
+                            });
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("🎯").size(16.0));
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("Smart Filtering").strong().size(13.0));
+                                ui.label(egui::RichText::new("Filter by file type: documents, images, videos, code").size(12.0).weak());
+                            });
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("🔄").size(16.0));
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("Real-Time Monitoring").strong().size(13.0));
+                                ui.label(egui::RichText::new("Index updates automatically as files change").size(12.0).weak());
+                            });
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("🪶").size(16.0));
+                            ui.vertical(|ui| {
+                                ui.label(egui::RichText::new("Lightweight").strong().size(13.0));
+                                ui.label(egui::RichText::new("Minimal memory footprint, runs efficiently in background").size(12.0).weak());
+                            });
+                        });
+                    });
+                });
+            
+            ui.add_space(20.0);
+            
+            // Getting Started
+            ui.label(egui::RichText::new("🎯 Getting Started").size(16.0).strong());
+            ui.add_space(8.0);
+            
+            ui.label(egui::RichText::new("1. FlashFind is now indexing your files in the background").size(13.0));
+            ui.label(egui::RichText::new("2. Start typing in the search box to find files instantly").size(13.0));
+            ui.label(egui::RichText::new("3. Use filters to narrow down by file type").size(13.0));
+            ui.label(egui::RichText::new("4. Press Enter to open, Esc to clear").size(13.0));
+            
+            ui.add_space(20.0);
+            
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new("Ready to experience lightning-fast search?")
+                    .size(13.0)
+                    .weak());
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Close this window to get started!").size(12.0).color(egui::Color32::from_rgb(100, 200, 255)));
+            });
+            
+            ui.add_space(10.0);
+        });
+    });
 }
 
 /// Initialize logging system

@@ -16,6 +16,14 @@ pub struct Config {
     
     /// Enabled drive letters (e.g., vec!['C', 'D'])
     pub enabled_drives: Vec<char>,
+    
+    /// First launch flag for welcome screen
+    #[serde(default = "default_first_launch")]
+    pub first_launch: bool,
+}
+
+fn default_first_launch() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -31,6 +39,7 @@ impl Default for Config {
             auto_save_interval: 300, // 5 minutes
             theme: Theme::Dark,
             enabled_drives: vec!['C'], // Default: C drive only
+            first_launch: true,
         }
     }
 }
