@@ -86,6 +86,18 @@ impl FileIndex {
         self.pool.is_empty()
     }
 
+    /// Clear all indexed data
+    pub fn clear(&mut self) {
+        info!("Clearing index with {} files", self.pool.len());
+        self.pool.clear();
+        self.filename_index.clear();
+        self.extension_index.clear();
+        self.seen_paths.clear();
+        self.stats.insertions.store(0, Ordering::Relaxed);
+        self.stats.duplicates.store(0, Ordering::Relaxed);
+        self.stats.searches.store(0, Ordering::Relaxed);
+    }
+
     /// Get statistics about the index
     pub fn stats(&self) -> (usize, usize, usize) {
         (

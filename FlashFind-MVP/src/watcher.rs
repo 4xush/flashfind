@@ -57,8 +57,17 @@ impl Watcher {
         Ok(())
     }
     
+    /// Clear all watched directories
+    pub fn clear_watches(&mut self) {
+        info!("Clearing {} watched directories", self.watched_dirs.len());
+        self.watched_dirs.clear();
+    }
+    
     /// Watch multiple directories
     pub fn watch_directories(&mut self, paths: Vec<PathBuf>) -> Result<Vec<FlashFindError>> {
+        // Clear existing watches to avoid duplicates
+        self.clear_watches();
+        
         let mut errors = Vec::new();
         
         for path in paths {

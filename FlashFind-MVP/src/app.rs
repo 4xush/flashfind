@@ -408,17 +408,23 @@ impl FlashFindApp {
                             let drive_label = if *drive == 'C' {
                                 format!("{}: (User folders: Documents, Downloads, Desktop, etc.)", drive)
                             } else {
-                                format!("{}: (Entire drive)", drive)
+                                format!("{}: (Coming soon)", drive)
                             };
                             
-                            if ui.checkbox(&mut is_enabled, drive_label).changed() {
-                                if is_enabled {
-                                    if !self.config.enabled_drives.contains(drive) {
-                                        self.config.enabled_drives.push(*drive);
+                            // Only C drive is functional for now
+                            if *drive == 'C' {
+                                if ui.checkbox(&mut is_enabled, drive_label).changed() {
+                                    if is_enabled {
+                                        if !self.config.enabled_drives.contains(drive) {
+                                            self.config.enabled_drives.push(*drive);
+                                        }
+                                    } else {
+                                        self.config.enabled_drives.retain(|d| d != drive);
                                     }
-                                } else {
-                                    self.config.enabled_drives.retain(|d| d != drive);
                                 }
+                            } else {
+                                // Disabled checkbox for non-C drives
+                                ui.add_enabled(false, egui::Checkbox::new(&mut false, drive_label));
                             }
                         }
                         
@@ -448,6 +454,9 @@ impl FlashFindApp {
                                     warn!("Failed to save config: {}", e);
                                     self.last_error = Some(format!("Failed to save config: {}", e));
                                 } else {
+                                    // Clear existing index before re-indexing with new drive selection
+                                    self.index.write().clear();
+                                    
                                     // Trigger re-indexing
                                     let dirs = crate::watcher::get_directories_for_drives(&self.config.enabled_drives);
                                     if let Err(e) = self.indexer.start_scan(dirs.clone()) {
