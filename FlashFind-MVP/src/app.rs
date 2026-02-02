@@ -72,7 +72,18 @@ pub struct FlashFindApp {
     search_time_ms: f64,
     last_error: Option<String>,
     show_settings: bool,
+    settings_tab: SettingsTab,
     last_save: Instant,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SettingsTab {
+    Configuration,
+    Drives,
+    Statistics,
+    Status,
+    Directories,
+    About,
 }
 
 impl FlashFindApp {
@@ -154,6 +165,7 @@ impl FlashFindApp {
             search_time_ms: 0.0,
             last_error: None,
             show_settings: false,
+            settings_tab: SettingsTab::Configuration,
             last_save: Instant::now(),
         }
     }
@@ -330,155 +342,242 @@ impl FlashFindApp {
     
     /// Render settings window
     fn render_settings(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.heading("FlashFind Settings");
-        ui.add_space(10.0);
-        
-        // Configuration
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("⚙️ Configuration").strong());
-            ui.separator();
-            
-            // Theme selector
-            ui.horizontal(|ui| {
-                ui.label("Theme:");
-                let mut changed = false;
-                changed |= ui.selectable_value(&mut self.config.theme, Theme::Dark, "Dark").changed();
-                changed |= ui.selectable_value(&mut self.config.theme, Theme::Light, "Light").changed();
-                changed |= ui.selectable_value(&mut self.config.theme, Theme::System, "System").changed();
-                
-                if changed {
-                    setup_ui_style(ctx, self.config.theme);
-                    if let Err(e) = self.config.save() {
-                        warn!("Failed to save config: {}", e);
-                    }
-                }
-            });
-            
-            // Auto-save interval
-            ui.horizontal(|ui| {
-                ui.label("Auto-save interval:");
-                let mut minutes = (self.config.auto_save_interval / 60) as i32;
-                if ui.add(egui::Slider::new(&mut minutes, 0..=60).suffix(" min")).changed() {
-                    self.config.auto_save_interval = (minutes as u64) * 60;
-                    if let Err(e) = self.config.save() {
-                        warn!("Failed to save config: {}", e);
-                    }
-                }
-            });
-            ui.label(egui::RichText::new("(0 = disabled)").weak());
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.settings_tab, SettingsTab::Configuration, "⚙️ Configuration");
+            ui.selectable_value(&mut self.settings_tab, SettingsTab::Drives, "💾 Drives");
+            ui.selectable_value(&mut self.settings_tab, SettingsTab::Statistics, "📊 Statistics");
+            ui.selectable_value(&mut self.settings_tab, SettingsTab::Status, "⚙️ Status");
+            ui.selectable_value(&mut self.settings_tab, SettingsTab::Directories, "👁 Directories");
+            ui.selectable_value(&mut self.settings_tab, SettingsTab::About, "ℹ About");
         });
         
+        ui.separator();
         ui.add_space(10.0);
         
-        // Index statistics
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("📊 Index Statistics").strong());
-            ui.separator();
-            
-            let stats = self.index.read();
-            let (insertions, duplicates, searches) = stats.stats();
-            
-            ui.horizontal(|ui| {
-                ui.label("Total files:");
-                ui.label(egui::RichText::new(format!("{}", stats.len())).strong());
-            });
-            ui.horizontal(|ui| {
-                ui.label("Insertions:");
-                ui.label(format!("{}", insertions));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Duplicates skipped:");
-                ui.label(format!("{}", duplicates));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Searches performed:");
-                ui.label(format!("{}", searches));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Index version:");
-                ui.label(format!("v{}", stats.version()));
-            });
-        });
-        
-        ui.add_space(10.0);
-        
-        // Indexer state
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("⚙️ Indexer Status").strong());
-            ui.separator();
-            
-            match self.indexer.state() {
-                IndexState::Idle => {
-                    ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓ Idle");
-                }
-                IndexState::Scanning { progress } => {
-                    ui.colored_label(egui::Color32::from_rgb(255, 200, 100), format!("🔄 Scanning: {} files", progress));
-                }
-                IndexState::Saving => {
-                    ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "💾 Saving...");
-                }
-                IndexState::Error { message } => {
-                    ui.colored_label(egui::Color32::from_rgb(255, 100, 100), format!("❌ Error: {}", message));
-                }
-            }
-        });
-        
-        ui.add_space(10.0);
-        
-        // Watched directories
-        if let Some(w) = &self.watcher {
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("👁 Watched Directories").strong());
-                ui.separator();
-                
-                let watched = w.watched_directories();
-                if watched.is_empty() {
-                    ui.label(egui::RichText::new("No directories being watched").weak());
-                } else {
-                    egui::ScrollArea::vertical()
-                        .max_height(150.0)
-                        .show(ui, |ui| {
-                            for dir in watched {
-                                ui.label(format!("📁 {}", dir.display()));
+        egui::ScrollArea::vertical()
+            .max_height(400.0)
+            .show(ui, |ui| {
+                match self.settings_tab {
+                    SettingsTab::Configuration => {
+                        ui.heading("Configuration");
+                        ui.add_space(10.0);
+                        
+                        // Theme selector
+                        ui.horizontal(|ui| {
+                            ui.label("Theme:");
+                            let mut changed = false;
+                            changed |= ui.selectable_value(&mut self.config.theme, Theme::Dark, "Dark").changed();
+                            changed |= ui.selectable_value(&mut self.config.theme, Theme::Light, "Light").changed();
+                            changed |= ui.selectable_value(&mut self.config.theme, Theme::System, "System").changed();
+                            
+                            if changed {
+                                setup_ui_style(ctx, self.config.theme);
+                                if let Err(e) = self.config.save() {
+                                    warn!("Failed to save config: {}", e);
+                                }
                             }
                         });
+                        
+                        ui.add_space(10.0);
+                        
+                        // Auto-save interval
+                        ui.horizontal(|ui| {
+                            ui.label("Auto-save interval:");
+                            let mut minutes = (self.config.auto_save_interval / 60) as i32;
+                            if ui.add(egui::Slider::new(&mut minutes, 0..=60).suffix(" min")).changed() {
+                                self.config.auto_save_interval = (minutes as u64) * 60;
+                                if let Err(e) = self.config.save() {
+                                    warn!("Failed to save config: {}", e);
+                                }
+                            }
+                        });
+                        ui.label(egui::RichText::new("(0 = disabled)").weak().small());
+                    }
+                    
+                    SettingsTab::Drives => {
+                        ui.heading("Drive Selection");
+                        ui.add_space(10.0);
+                        
+                        ui.label(egui::RichText::new("Select which drives to index:").weak());
+                        ui.add_space(10.0);
+                        
+                        let available_drives = crate::watcher::get_available_drives();
+                        
+                        for drive in &available_drives {
+                            let mut is_enabled = self.config.enabled_drives.contains(drive);
+                            let drive_label = if *drive == 'C' {
+                                format!("{}: (User folders: Documents, Downloads, Desktop, etc.)", drive)
+                            } else {
+                                format!("{}: (Entire drive)", drive)
+                            };
+                            
+                            if ui.checkbox(&mut is_enabled, drive_label).changed() {
+                                if is_enabled {
+                                    if !self.config.enabled_drives.contains(drive) {
+                                        self.config.enabled_drives.push(*drive);
+                                    }
+                                } else {
+                                    self.config.enabled_drives.retain(|d| d != drive);
+                                }
+                            }
+                        }
+                        
+                        ui.add_space(10.0);
+                        
+                        if !self.config.enabled_drives.is_empty() {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Selected: {}",
+                                    self.config.enabled_drives.iter().collect::<String>()
+                                ))
+                                .weak()
+                                .small()
+                            );
+                        } else {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(255, 150, 100),
+                                "⚠ At least one drive must be selected"
+                            );
+                        }
+                        
+                        ui.add_space(10.0);
+                        
+                        if ui.button("🔄 Apply & Re-index").on_hover_text("Save drive selection and rebuild index").clicked() {
+                            if !self.config.enabled_drives.is_empty() {
+                                if let Err(e) = self.config.save() {
+                                    warn!("Failed to save config: {}", e);
+                                    self.last_error = Some(format!("Failed to save config: {}", e));
+                                } else {
+                                    // Trigger re-indexing
+                                    let dirs = crate::watcher::get_directories_for_drives(&self.config.enabled_drives);
+                                    if let Err(e) = self.indexer.start_scan(dirs.clone()) {
+                                        error!("Failed to start re-indexing: {}", e);
+                                        self.last_error = Some(e.user_message());
+                                    } else {
+                                        // Update watcher
+                                        if let Some(ref mut watcher) = self.watcher {
+                                            match watcher.watch_directories(dirs) {
+                                                Ok(errors) => {
+                                                    for err in errors {
+                                                        warn!("Watcher error: {}", err);
+                                                    }
+                                                }
+                                                Err(e) => error!("Failed to setup watchers: {}", e),
+                                            }
+                                        }
+                                        info!("Re-indexing started for drives: {:?}", self.config.enabled_drives);
+                                    }
+                                }
+                            } else {
+                                self.last_error = Some("Please select at least one drive".to_string());
+                            }
+                        }
+                        
+                        ui.add_space(5.0);
+                        ui.label(
+                            egui::RichText::new("ℹ Changes require clicking Apply to take effect")
+                            .weak()
+                            .small()
+                        );
+                    }
+                    
+                    SettingsTab::Statistics => {
+                        ui.heading("Index Statistics");
+                        ui.add_space(10.0);
+                        
+                        let stats = self.index.read();
+                        let (insertions, duplicates, searches) = stats.stats();
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Total files:");
+                            ui.label(egui::RichText::new(format!("{}", stats.len())).strong());
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Insertions:");
+                            ui.label(format!("{}", insertions));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Duplicates skipped:");
+                            ui.label(format!("{}", duplicates));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Searches performed:");
+                            ui.label(format!("{}", searches));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Index version:");
+                            ui.label(format!("v{}", stats.version()));
+                        });
+                    }
+                    
+                    SettingsTab::Status => {
+                        ui.heading("Indexer Status");
+                        ui.add_space(10.0);
+                        
+                        match self.indexer.state() {
+                            IndexState::Idle => {
+                                ui.colored_label(egui::Color32::from_rgb(100, 255, 100), "✓ Idle");
+                            }
+                            IndexState::Scanning { progress } => {
+                                ui.colored_label(egui::Color32::from_rgb(255, 200, 100), format!("🔄 Scanning: {} files", progress));
+                            }
+                            IndexState::Saving => {
+                                ui.colored_label(egui::Color32::from_rgb(100, 200, 255), "💾 Saving...");
+                            }
+                            IndexState::Error { message } => {
+                                ui.colored_label(egui::Color32::from_rgb(255, 100, 100), format!("❌ Error: {}", message));
+                            }
+                        }
+                    }
+                    
+                    SettingsTab::Directories => {
+                        ui.heading("Watched Directories");
+                        ui.add_space(10.0);
+                        
+                        if let Some(w) = &self.watcher {
+                            let watched = w.watched_directories();
+                            if watched.is_empty() {
+                                ui.label(egui::RichText::new("No directories being watched").weak());
+                            } else {
+                                for dir in watched {
+                                    ui.label(format!("📁 {}", dir.display()));
+                                }
+                            }
+                        } else {
+                            ui.colored_label(egui::Color32::from_rgb(255, 150, 100), "⚠ File watcher disabled");
+                        }
+                    }
+                    
+                    SettingsTab::About => {
+                        ui.heading("About FlashFind");
+                        ui.add_space(10.0);
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Version:");
+                            ui.label(egui::RichText::new("v1.0.0-phase2").strong());
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Built:");
+                            ui.label(env!("CARGO_PKG_VERSION"));
+                        });
+                        
+                        ui.horizontal(|ui| {
+                            ui.label("Architecture:");
+                            ui.label(std::env::consts::ARCH);
+                        });
+                        
+                        ui.add_space(10.0);
+                        ui.label("High-performance file search for Windows");
+                        ui.label(egui::RichText::new("MIT License © 2026").weak().small());
+                        
+                        ui.add_space(10.0);
+                        if ui.link("📖 Documentation").clicked() {
+                            let _ = open::that("https://github.com");
+                        }
+                    }
                 }
             });
-        } else {
-            ui.colored_label(egui::Color32::from_rgb(255, 150, 100), "⚠ File watcher disabled");
-        }
-        
-        ui.add_space(10.0);
-        
-        // About
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("ℹ About").strong());
-            ui.separator();
-            
-            ui.horizontal(|ui| {
-                ui.label("Version:");
-                ui.label(egui::RichText::new("v1.0.0-phase2").strong());
-            });
-            
-            ui.horizontal(|ui| {
-                ui.label("Built:");
-                ui.label(env!("CARGO_PKG_VERSION"));
-            });
-            
-            ui.horizontal(|ui| {
-                ui.label("Architecture:");
-                ui.label(std::env::consts::ARCH);
-            });
-            
-            ui.add_space(5.0);
-            ui.label("High-performance file search for Windows");
-            ui.label(egui::RichText::new("MIT License © 2026").weak().small());
-            
-            ui.add_space(5.0);
-            if ui.link("📖 Documentation").clicked() {
-                let _ = open::that("https://github.com");
-            }
-        });
     }
 }
 
@@ -635,8 +734,10 @@ impl eframe::App for FlashFindApp {
         if show_settings {
             egui::Window::new("⚙ Settings")
                 .open(&mut show_settings)
-                .resizable(true)
-                .default_width(400.0)
+                .resizable(false)
+                .collapsible(false)
+                .fixed_size([600.0, 500.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     self.render_settings(ui, ctx);
                 });

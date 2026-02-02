@@ -13,6 +13,9 @@ pub struct Config {
     
     /// Theme preference
     pub theme: Theme,
+    
+    /// Enabled drive letters (e.g., vec!['C', 'D'])
+    pub enabled_drives: Vec<char>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -27,6 +30,7 @@ impl Default for Config {
         Self {
             auto_save_interval: 300, // 5 minutes
             theme: Theme::Dark,
+            enabled_drives: vec!['C'], // Default: C drive only
         }
     }
 }
@@ -91,5 +95,6 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.auto_save_interval, 300);
         assert_eq!(config.theme, Theme::Dark);
+        assert_eq!(config.enabled_drives, vec!['C']);
     }
 }

@@ -174,31 +174,74 @@ pub fn is_excluded(path: &Path) -> bool {
 
 /// Get default directories to index based on Windows user folders
 pub fn get_default_directories() -> Vec<PathBuf> {
+    get_directories_for_drives(&['C'])
+}
+
+/// Get available Windows drive letters
+pub fn get_available_drives() -> Vec<char> {
+    let mut drives = Vec::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Check common drive letters A-Z
+        for letter in 'A'..='Z' {
+            let drive_path = format!("{}:\\", letter);
+            if std::path::Path::new(&drive_path).exists() {
+                drives.push(letter);
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Non-Windows: just return root
+        drives.push('/');
+    }
+    
+    drives
+}
+
+/// Get directories for specified drives
+pub fn get_directories_for_drives(drive_letters: &[char]) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     
     #[cfg(target_os = "windows")]
     {
         use known_folders::{get_known_folder_path, KnownFolder};
         
-        let folders = vec![
-            (KnownFolder::Documents, "Documents"),
-            (KnownFolder::Downloads, "Downloads"),
-            (KnownFolder::Desktop, "Desktop"),
-            (KnownFolder::Pictures, "Pictures"),
-            (KnownFolder::Videos, "Videos"),
-            (KnownFolder::Music, "Music"),
-        ];
-        
-        for (folder, name) in folders {
-            if let Some(path) = get_known_folder_path(folder) {
-                if path.exists() {
-                    info!("Added default directory: {} ({})", name, path.display());
-                    dirs.push(path);
+        // Only add user folders if C: drive is enabled
+        if drive_letters.contains(&'C') {
+            let folders = vec![
+                (KnownFolder::Documents, "Documents"),
+                (KnownFolder::Downloads, "Downloads"),
+                (KnownFolder::Desktop, "Desktop"),
+                (KnownFolder::Pictures, "Pictures"),
+                (KnownFolder::Videos, "Videos"),
+                (KnownFolder::Music, "Music"),
+            ];
+            
+            for (folder, name) in folders {
+                if let Some(path) = get_known_folder_path(folder) {
+                    if path.exists() {
+                        info!("Added default directory: {} ({})", name, path.display());
+                        dirs.push(path);
+                    } else {
+                        warn!("Known folder {} does not exist: {}", name, path.display());
+                    }
                 } else {
-                    warn!("Known folder {} does not exist: {}", name, path.display());
+                    warn!("Could not get path for known folder: {}", name);
                 }
-            } else {
-                warn!("Could not get path for known folder: {}", name);
+            }
+        }
+        
+        // Add root of other enabled drives (excluding C:)
+        for &drive in drive_letters {
+            if drive != 'C' {
+                let drive_root = PathBuf::from(format!("{}:\\", drive));
+                if drive_root.exists() {
+                    info!("Added drive root: {}", drive_root.display());
+                    dirs.push(drive_root);
+                }
             }
         }
     }
