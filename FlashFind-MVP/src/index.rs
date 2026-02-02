@@ -225,7 +225,6 @@ impl FileIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn test_basic_insert() {

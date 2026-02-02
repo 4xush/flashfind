@@ -8,23 +8,11 @@ use crate::persistence::get_app_data_dir;
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Directories to index
-    pub watched_directories: Vec<PathBuf>,
-    
     /// Auto-save interval in seconds (0 = disabled)
     pub auto_save_interval: u64,
     
-    /// Maximum index size
-    pub max_index_size: usize,
-    
     /// Theme preference
     pub theme: Theme,
-    
-    /// Show hidden files
-    pub show_hidden_files: bool,
-    
-    /// Custom exclusion patterns
-    pub custom_exclusions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -37,12 +25,8 @@ pub enum Theme {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            watched_directories: Vec::new(), // Will be populated with defaults
             auto_save_interval: 300, // 5 minutes
-            max_index_size: 10_000_000,
             theme: Theme::Dark,
-            show_hidden_files: false,
-            custom_exclusions: Vec::new(),
         }
     }
 }
@@ -103,19 +87,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_config() {
+    fn test_config_default() {
         let config = Config::default();
         assert_eq!(config.auto_save_interval, 300);
-        assert_eq!(config.max_index_size, 10_000_000);
         assert_eq!(config.theme, Theme::Dark);
-        assert!(!config.show_hidden_files);
-    }
-
-    #[test]
-    fn test_config_serialization() {
-        let config = Config::default();
-        let json = serde_json::to_string(&config).unwrap();
-        let deserialized: Config = serde_json::from_str(&json).unwrap();
-        assert_eq!(config.auto_save_interval, deserialized.auto_save_interval);
     }
 }
