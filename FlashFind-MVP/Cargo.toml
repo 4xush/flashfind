@@ -32,3 +32,10 @@ csv = "1.3"                 # CSV export functionality
 
 [build-dependencies]
 winres = "0.1"
+
+[profile.release]
+opt-level = "z"       # Optimize for size
+lto = true            # Link-time optimization (slower build, smaller binary)
+codegen-units = 1     # Better optimization, slower compile
+strip = true          # Remove debug symbols
+panic = "abort"       # Smaller panic handler

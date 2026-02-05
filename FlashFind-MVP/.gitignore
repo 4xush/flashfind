@@ -38,3 +38,9 @@ coverage/
 
 # Ignore by default, but allow versioning of Cargo.lock for binaries
 # Cargo.lock
+
+# Distribution artifacts
+dist/
+DISTRIBUTION.md
+SHIPPING_SUMMARY.md
+check_windows_version.ps1
