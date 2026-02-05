@@ -34,6 +34,28 @@ cargo build --release
 .\target\release\flashfind.exe
 ```
 
+## 📸 Screenshots
+
+<div align="center">
+
+### Main Search Interface
+![Main Search](FlashFind-MVP/screenshots/main-search.png)
+*Lightning-fast search with instant results*
+
+### Search with Filters
+![Search Filters](FlashFind-MVP/screenshots/search-filter.png)
+*Advanced filtering options*
+
+### Settings & Configuration
+![Settings](FlashFind-MVP/screenshots/settings.png)
+*Easy configuration and index management*
+
+### Welcome Screen
+![Welcome Screen](FlashFind-MVP/screenshots/welcome.png)
+*First-run setup experience*
+
+</div>
+
 ## 🎯 Why FlashFind?
 
 Windows File Explorer search is slow (1-5 seconds) because:
