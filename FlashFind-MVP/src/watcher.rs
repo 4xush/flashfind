@@ -93,8 +93,20 @@ fn handle_fs_event(event: Event, index: &Arc<RwLock<FileIndex>>) {
     match event.kind {
         EventKind::Create(_) | EventKind::Modify(_) => {
             for path in event.paths {
-                if path.is_file() && !is_excluded(&path) {
+                // Check permissions before processing
+                if !has_read_permission(&path) {
+                    debug!("Skipping file without read permission: {}", path.display());
+                    continue;
+                }
+                
+                if path.is_file() && !is_excluded(&path) && !is_temp_file(&path) {
                     debug!("File created/modified: {}", path.display());
+                    
+                    // Verify file is stable (not being written) before indexing
+                    if !is_file_stable(&path) {
+                        debug!("File not stable, skipping: {}", path.display());
+                        continue;
+                    }
                     
                     let mut lock = index.write();
                     match lock.insert(path.clone()) {
@@ -123,6 +135,48 @@ fn handle_fs_event(event: Event, index: &Arc<RwLock<FileIndex>>) {
         }
         _ => {}
     }
+}
+
+/// Check if a file is stable (not currently being written)
+fn is_file_stable(path: &Path) -> bool {
+    use std::thread;
+    use std::time::Duration;
+    
+    // Get initial metadata
+    let size1 = match std::fs::metadata(path) {
+        Ok(meta) => meta.len(),
+        Err(_) => return false, // File doesn't exist or can't be read
+    };
+    
+    // Wait briefly
+    thread::sleep(Duration::from_millis(100));
+    
+    // Check again
+    let size2 = match std::fs::metadata(path) {
+        Ok(meta) => meta.len(),
+        Err(_) => return false,
+    };
+    
+    // If size is the same, file is likely stable
+    size1 == size2
+}
+
+/// Check if a file is temporary or should be ignored
+fn is_temp_file(path: &Path) -> bool {
+    let filename = path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    // Common temporary file patterns
+    filename.starts_with("~$")           // Office temp files
+        || filename.starts_with(".~")    // Various temp files
+        || filename.ends_with(".tmp")    // Generic temp
+        || filename.ends_with(".temp")
+        || filename.ends_with(".crdownload") // Chrome downloads
+        || filename.ends_with(".part")   // Firefox downloads
+        || filename.ends_with(".download") // Generic downloads
+        || filename.contains(".tmp.")    // Embedded temp markers
 }
 
 /// Check if a path should be excluded from indexing
@@ -274,6 +328,30 @@ pub fn get_directories_for_drives(drive_letters: &[char]) -> Vec<PathBuf> {
     }
     
     dirs
+}
+
+/// Check if we have read permission for a path
+pub fn has_read_permission(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(_) => true,
+        Err(e) => {
+            use std::io::ErrorKind;
+            match e.kind() {
+                ErrorKind::PermissionDenied => {
+                    debug!("Permission denied: {}", path.display());
+                    false
+                }
+                ErrorKind::NotFound => {
+                    debug!("Path not found: {}", path.display());
+                    false
+                }
+                _ => {
+                    warn!("Error accessing {}: {}", path.display(), e);
+                    false
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

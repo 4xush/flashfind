@@ -524,10 +524,12 @@ impl FlashFindApp {
                         
                         let stats = self.index.read();
                         let (insertions, duplicates, searches) = stats.stats();
+                        let live_count = stats.len();
+                        drop(stats);
                         
                         ui.horizontal(|ui| {
-                            ui.label("Total files:");
-                            ui.label(egui::RichText::new(format!("{}", stats.len())).strong());
+                            ui.label("Live files:");
+                            ui.label(egui::RichText::new(format!("{}", live_count)).strong());
                         });
                         ui.horizontal(|ui| {
                             ui.label("Insertions:");
@@ -541,10 +543,32 @@ impl FlashFindApp {
                             ui.label("Searches performed:");
                             ui.label(format!("{}", searches));
                         });
-                        ui.horizontal(|ui| {
-                            ui.label("Index version:");
-                            ui.label(format!("v{}", stats.version()));
-                        });
+                        
+                        ui.add_space(15.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+                        
+                        ui.label(egui::RichText::new("🗜️ Index Maintenance").size(14.0).strong());
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("Compaction removes deleted file entries and frees memory.").size(12.0).weak());
+                        ui.add_space(8.0);
+                        
+                        if ui.button("🗜️ Compact Index").on_hover_text("Remove tombstones and optimize memory").clicked() {
+                            match self.index.write().compact() {
+                                Ok(removed) => {
+                                    info!("Manual compaction: removed {} tombstones", removed);
+                                    if removed > 0 {
+                                        self.last_error = Some(format!("✓ Compacted: removed {} deleted entries", removed));
+                                    } else {
+                                        self.last_error = Some("✓ Index already compact".to_string());
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Compaction failed: {}", e);
+                                    self.last_error = Some(format!("Compaction failed: {}", e.user_message()));
+                                }
+                            }
+                        }
                     }
                     
                     SettingsTab::Status => {

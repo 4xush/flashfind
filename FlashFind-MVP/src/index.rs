@@ -98,6 +98,59 @@ impl FileIndex {
         self.stats.searches.store(0, Ordering::Relaxed);
     }
 
+    /// Compact the index by removing tombstones and rebuilding all structures
+    /// This should be called periodically or when deletion count is high
+    pub fn compact(&mut self) -> Result<usize> {
+        let original_size = self.pool.len();
+        let live_count = self.seen_paths.len();
+        
+        if live_count == original_size {
+            debug!("Index already compact: {} live entries", live_count);
+            return Ok(0);
+        }
+        
+        info!("Compacting index: {} -> {} files (removing {} tombstones)", 
+              original_size, live_count, original_size - live_count);
+        
+        // Build new pool from seen_paths only
+        let new_pool: Vec<PathBuf> = self.seen_paths.iter().cloned().collect();
+        
+        // Rebuild filename and extension indices
+        let mut new_filename_index = AHashMap::new();
+        let mut new_extension_index = AHashMap::new();
+        
+        for (idx, path) in new_pool.iter().enumerate() {
+            let idx_u32 = idx as u32;
+            
+            // Add to filename index
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                let lower_name = filename.to_lowercase();
+                new_filename_index
+                    .entry(lower_name)
+                    .or_insert_with(Vec::new)
+                    .push(idx_u32);
+            }
+            
+            // Add to extension index
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                new_extension_index
+                    .entry(ext.to_lowercase())
+                    .or_insert_with(Vec::new)
+                    .push(idx_u32);
+            }
+        }
+        
+        // Replace old structures
+        self.pool = new_pool;
+        self.filename_index = new_filename_index;
+        self.extension_index = new_extension_index;
+        
+        let removed = original_size - live_count;
+        info!("Compaction complete: removed {} tombstones, {} files remain", removed, live_count);
+        
+        Ok(removed)
+    }
+
     /// Get statistics about the index
     pub fn stats(&self) -> (usize, usize, usize) {
         (
@@ -215,11 +268,12 @@ impl FileIndex {
             matched_indices.extend(results);
         }
 
-        // Convert indices to paths and sort
+        // Convert indices to paths, filter out deleted files, and sort
         let mut results: Vec<PathBuf> = matched_indices
             .into_iter()
             .filter(|&idx| (idx as usize) < self.pool.len()) // Safety check
             .map(|idx| self.pool[idx as usize].clone())
+            .filter(|path| self.seen_paths.contains(path)) // Filter out deleted files
             .collect();
 
         results.sort_unstable_by(|a, b| {
